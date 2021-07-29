@@ -1,16 +1,17 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
-	"context"
-	"database/sql"
 
 	_ "github.com/lib/pq"
+	"greenlight.yernar.net/internal/data"
 )
 
 const version = "1.0.0"
@@ -18,17 +19,18 @@ const version = "1.0.0"
 type config struct {
 	port int
 	env  string
-	db struct {
-		dsn string
+	db   struct {
+		dsn          string
 		maxOpenConns int
 		maxIdleConns int
-		maxIdleTime string
+		maxIdleTime  string
 	}
 }
 
 type application struct {
 	config config
 	logger *log.Logger
+	models data.Models
 }
 
 func main() {
@@ -36,7 +38,7 @@ func main() {
 	flag.IntVar(&cfg.port, "port", 4000, "API server port")
 	flag.StringVar(&cfg.env, "env", "development", "Environment (development|staging|production)")
 
-	flag.StringVar(&cfg.db.dsn, "db-dsn", "postgres://greenlight:paSSword@localhost/greenlight", "PostgreSQL DSN")
+	flag.StringVar(&cfg.db.dsn, "db-dsn", "postgres://greenlight:pa55word@localhost/greenlight?sslmode=disable", "PostgreSQL DSN")
 
 	flag.IntVar(&cfg.db.maxOpenConns, "db-max-open-conns", 25, "PostgreSQL max open connections")
 	flag.IntVar(&cfg.db.maxIdleConns, "db-max-idle-conns", 25, "PostgreSQL max idle connections")
@@ -59,6 +61,7 @@ func main() {
 	app := &application{
 		config: cfg,
 		logger: logger,
+		models: data.NewModels(db),
 	}
 
 	srv := &http.Server{
@@ -74,11 +77,10 @@ func main() {
 	logger.Fatal(err)
 }
 
-
-func openDb(cfg config) (*sql.DB, error) {	
+func openDb(cfg config) (*sql.DB, error) {
 
 	db, err := sql.Open("postgres", cfg.db.dsn)
-		
+
 	if err != nil {
 		return nil, err
 	}
@@ -103,5 +105,24 @@ func openDb(cfg config) (*sql.DB, error) {
 		return nil, err
 	}
 
-	return db, nil	
+	createTables(db)
+
+	return db, nil
+}
+
+func createTables(db *sql.DB) {
+
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS movies (
+		id bigserial PRIMARY KEY,
+		created_at timestamp(0) with time zone NOT NULL DEFAULT NOW(),
+		title text NOT NULL,
+		year integer NOT NULL,
+		runtime integer NOT NULL,
+		genres text[] NOT NULL,
+		version integer NOT NULL DEFAULT 1
+	);`)
+	if err != nil {
+		fmt.Println(err)
+	}
+
 }
