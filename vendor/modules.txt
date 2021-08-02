@@ -8,6 +8,14 @@ github.com/lib/pq/oid
 github.com/lib/pq/scram
 # golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97
 ## explicit
+golang.org/x/crypto/bcrypt
+golang.org/x/crypto/blowfish
+# golang.org/x/net v0.0.0-20210726213435-c6fcb2dbf985
+## explicit
+# golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
+## explicit
+# golang.org/x/term v0.0.0-20210615171337-6886f2dfbf5b
+## explicit
 # golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac
 ## explicit
 golang.org/x/time/rate
