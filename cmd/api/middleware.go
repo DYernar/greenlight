@@ -2,13 +2,16 @@ package main
 
 import (
 	"errors"
+	"expvar"
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/felixge/httpsnoop"
 	"golang.org/x/time/rate"
 	"greenlight.yernar.net/internal/data"
 	"greenlight.yernar.net/internal/validator"
@@ -54,31 +57,32 @@ func (app *application) rateLimit(next http.Handler) http.Handler {
 	}()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if app.config.limiter.enabled {
+			ip, _, err := net.SplitHostPort(r.RemoteAddr)
 
-		if err != nil {
-			app.serverErrorResponse(w, r, err)
-			return
-		}
-
-		mu.Lock()
-
-		if _, found := clients[ip]; !found {
-			clients[ip] = &client{
-				limiter: rate.NewLimiter(rate.Limit(app.config.limiter.rps), app.config.limiter.burst),
+			if err != nil {
+				app.serverErrorResponse(w, r, err)
+				return
 			}
-		}
 
-		clients[ip].lastSeen = time.Now()
+			mu.Lock()
 
-		if !clients[ip].limiter.Allow() {
+			if _, found := clients[ip]; !found {
+				clients[ip] = &client{
+					limiter: rate.NewLimiter(rate.Limit(app.config.limiter.rps), app.config.limiter.burst),
+				}
+			}
+
+			clients[ip].lastSeen = time.Now()
+
+			if !clients[ip].limiter.Allow() {
+				mu.Unlock()
+				app.rateLimitExceededResponse(w, r)
+				return
+			}
+
 			mu.Unlock()
-			app.rateLimitExceededResponse(w, r)
-			return
 		}
-
-		mu.Unlock()
-
 		next.ServeHTTP(w, r)
 	})
 
@@ -199,5 +203,23 @@ func (app *application) enableCors(next http.Handler) http.Handler {
 			}
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+func (app *application) metrics(next http.Handler) http.Handler {
+	totalRequestsReceived := expvar.NewInt("total_requests_received")
+	totalResponsesSent := expvar.NewInt("total_responses_sent")
+	totalProcessingTimeMicroseconds := expvar.NewInt("total_processing_time_μs")
+
+	totalResponsesSentByStatus := expvar.NewMap("total_responses_sent_by_status")
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		totalRequestsReceived.Add(1)
+
+		metrics := httpsnoop.CaptureMetrics(next, w, r)
+
+		totalResponsesSent.Add(1)
+		totalProcessingTimeMicroseconds.Add(metrics.Duration.Microseconds())
+		totalResponsesSentByStatus.Add(strconv.Itoa(metrics.Code), 1)
 	})
 }
